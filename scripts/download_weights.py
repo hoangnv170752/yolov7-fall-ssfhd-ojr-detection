@@ -9,12 +9,11 @@ This script:
 """
 
 import os
+import sys
 import argparse
 import requests
 import subprocess
 from pathlib import Path
-import yaml
-import sys
 import shutil
 from tqdm import tqdm
 
@@ -22,9 +21,9 @@ from tqdm import tqdm
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Download YOLOv7 weights and setup project')
-    parser.add_argument('--config', type=str, default='config/config.yaml', help='Path to config file')
+    parser.add_argument('--yolo-dir', type=str, default='models/yolov7', help='Directory to clone YOLOv7 repository')
+    parser.add_argument('--weights-dir', type=str, default='weights', help='Directory to save weights')
     parser.add_argument('--no-clone', action='store_true', help='Skip cloning YOLOv7 repository')
-    parser.add_argument('--weights-only', action='store_true', help='Download weights only')
     
     return parser.parse_args()
 
@@ -36,77 +35,82 @@ def download_file(url, output_path):
     Args:
         url: URL to download
         output_path: Path to save the file
-    """
-    response = requests.get(url, stream=True)
-    total_size = int(response.headers.get('content-length', 0))
-    block_size = 1024  # 1 KB
     
+    Returns:
+        success: True if download was successful, False otherwise
+    """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
-    progress_bar = tqdm(
-        total=total_size,
-        unit='B',
-        unit_scale=True,
-        desc=f"Downloading {os.path.basename(output_path)}"
-    )
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        total_size = int(response.headers.get('content-length', 0))
+        block_size = 1024  # 1 KB
+        
+        progress_bar = tqdm(
+            total=total_size,
+            unit='B',
+            unit_scale=True,
+            desc=f"Downloading {os.path.basename(output_path)}"
+        )
+        
+        with open(output_path, 'wb') as file:
+            for data in response.iter_content(block_size):
+                progress_bar.update(len(data))
+                file.write(data)
+        
+        progress_bar.close()
+        
+        if total_size != 0 and progress_bar.n != total_size:
+            print("ERROR: Download incomplete")
+            return False
+        
+        return True
     
-    with open(output_path, 'wb') as file:
-        for data in response.iter_content(block_size):
-            progress_bar.update(len(data))
-            file.write(data)
-    
-    progress_bar.close()
-    
-    if total_size != 0 and progress_bar.n != total_size:
-        print("ERROR: Download incomplete")
+    except requests.exceptions.RequestException as e:
+        print(f"Error during download: {e}")
         return False
-    
-    return True
 
 
-def clone_yolov7(repo_url, output_dir):
+def clone_yolov7_repository(repo_url, output_dir):
     """
     Clone YOLOv7 repository.
     
     Args:
         repo_url: Repository URL
         output_dir: Output directory
+    
+    Returns:
+        success: True if cloning was successful, False otherwise
     """
     try:
         print(f"Cloning YOLOv7 repository to {output_dir}...")
+        os.makedirs(os.path.dirname(output_dir), exist_ok=True)
+        
+        # Check if git is installed
+        subprocess.run(['git', '--version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Clone the repository
         subprocess.run(['git', 'clone', repo_url, output_dir], check=True)
+        
         print("Repository cloned successfully")
         return True
+        
     except subprocess.CalledProcessError as e:
         print(f"Error cloning repository: {e}")
+        print("Make sure git is installed and accessible in your PATH")
+        return False
+    except Exception as e:
+        print(f"Unexpected error during cloning: {e}")
         return False
 
 
-def download_weights(weights_url, output_path):
-    """
-    Download YOLOv7 weights.
-    
-    Args:
-        weights_url: URL for weights
-        output_path: Path to save weights
-    """
-    print(f"Downloading YOLOv7 weights to {output_path}...")
-    success = download_file(weights_url, output_path)
-    
-    if success:
-        print("Weights downloaded successfully")
-    else:
-        print("Failed to download weights")
-    
-    return success
-
-
-def setup_project_structure(project_root):
+def setup_project_structure():
     """
     Set up project directory structure.
     
-    Args:
-        project_root: Project root directory
+    This creates the necessary directories if they don't exist.
     """
     directories = [
         'data/train',
@@ -114,11 +118,13 @@ def setup_project_structure(project_root):
         'data/test',
         'weights',
         'logs',
-        'outputs'
+        'outputs/evaluation',
+        'outputs/comparison',
+        'docs',
     ]
     
     for directory in directories:
-        os.makedirs(os.path.join(project_root, directory), exist_ok=True)
+        os.makedirs(directory, exist_ok=True)
     
     print("Project directory structure set up")
 
@@ -127,54 +133,53 @@ def main():
     """Main function."""
     args = parse_args()
     
-    # Load config
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
+    # Set repository and weights URLs
+    yolov7_repo_url = "https://github.com/WongKinYiu/yolov7.git"
+    yolov7_weights_url = "https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7.pt"
     
-    # Project setup
-    project_root = Path(__file__).resolve().parents[1]
+    # Setup project structure
+    setup_project_structure()
     
-    # URLs
-    repo_url = "https://github.com/WongKinYiu/yolov7.git"
-    weights_url = "https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7.pt"
-    
-    # Clone YOLOv7 repository
-    yolo_path = os.path.join(project_root, 'models', 'yolov7')
-    
-    if not args.no_clone and not args.weights_only:
-        if os.path.exists(yolo_path):
-            print(f"YOLOv7 directory already exists at {yolo_path}")
+    # Clone YOLOv7 repository if requested
+    if not args.no_clone:
+        yolo_dir = args.yolo_dir
+        
+        if os.path.exists(yolo_dir):
+            print(f"YOLOv7 directory already exists at {yolo_dir}")
             response = input("Do you want to remove and re-clone? (y/n): ")
             if response.lower() == 'y':
-                shutil.rmtree(yolo_path)
-                clone_success = clone_yolov7(repo_url, yolo_path)
+                shutil.rmtree(yolo_dir)
+                clone_success = clone_yolov7_repository(yolov7_repo_url, yolo_dir)
                 if not clone_success:
-                    sys.exit(1)
+                    print("Warning: Failed to clone YOLOv7 repository")
         else:
-            clone_success = clone_yolov7(repo_url, yolo_path)
+            clone_success = clone_yolov7_repository(yolov7_repo_url, yolo_dir)
             if not clone_success:
-                sys.exit(1)
+                print("Warning: Failed to clone YOLOv7 repository")
     
-    # Download weights
-    weights_path = os.path.join(project_root, config['model']['yolo_weights'])
+    # Download YOLOv7 weights
+    weights_path = os.path.join(args.weights_dir, 'yolov7.pt')
     
     if os.path.exists(weights_path):
-        print(f"Weights file already exists at {weights_path}")
+        print(f"YOLOv7 weights already exist at {weights_path}")
         response = input("Do you want to re-download? (y/n): ")
         if response.lower() == 'y':
-            download_success = download_weights(weights_url, weights_path)
+            download_success = download_file(yolov7_weights_url, weights_path)
             if not download_success:
-                print("Warning: Failed to download weights")
+                print("Warning: Failed to download YOLOv7 weights")
     else:
-        download_success = download_weights(weights_url, weights_path)
+        download_success = download_file(yolov7_weights_url, weights_path)
         if not download_success:
-            print("Warning: Failed to download weights")
+            print("Warning: Failed to download YOLOv7 weights")
     
-    # Set up project structure
-    if not args.weights_only:
-        setup_project_structure(project_root)
-    
-    print("Setup complete!")
+    print("\nSetup complete!")
+    print(f"- YOLOv7 repository: {args.yolo_dir}")
+    print(f"- YOLOv7 weights: {weights_path}")
+    print("\nNext steps:")
+    print("1. Organize your dataset")
+    print("2. Train the SSHFD model: python train.py --train-sshfd")
+    print("3. Train the OJR model: python train.py --train-ojr")
+    print("4. Evaluate the models: python evaluate.py")
 
 
 if __name__ == "__main__":

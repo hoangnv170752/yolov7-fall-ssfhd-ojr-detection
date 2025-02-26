@@ -16,6 +16,7 @@ tensorboard>=2.4.1
 
 # Visualization
 tensorboardX>=2.1
+tabulate>=0.8.9
 
 # Video processing
 moviepy>=1.0.3

@@ -66,6 +66,14 @@ def train_sshfd(config, args):
     
     # Move model to device
     model = model.to(device)
+
+    # Add debugging statements
+    print(f"Learning rate value: {config['training']['lr']} (type: {type(config['training']['lr'])})")
+    print(f"Weight decay value: {config['training']['weight_decay']} (type: {type(config['training']['weight_decay'])})")
+
+    # Convert weight_decay to float explicitly
+    config['training']['weight_decay'] = float(config['training']['weight_decay'])
+    print(f"After conversion - Weight decay: {config['training']['weight_decay']} (type: {type(config['training']['weight_decay'])})")
     
     # Define optimizer and schedulers
     optimizer = torch.optim.Adam(

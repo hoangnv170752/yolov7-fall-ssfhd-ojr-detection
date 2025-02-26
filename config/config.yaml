@@ -17,7 +17,7 @@ model:
   # SSHFD Configuration
   num_keypoints: 17 
   hidden_dim: 256
-  temporal_window: 5  # Number of frames to consider
+  temporal_window: 5
   save_path: "weights/sshfd_best.pt"
   
   # OJR Configuration
