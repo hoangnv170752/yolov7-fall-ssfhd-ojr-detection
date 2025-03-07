@@ -1,53 +1,35 @@
-# Configuration for Fall Detection Project
-
-# Data Configuration
 data:
-  root: "data/"
-  train_list: "data/train_list.txt"
-  val_list: "data/val_list.txt"
-  test_list: "data/test_list.txt"
-  img_size: 640 
-
-# Model Configuration
+  img_size: 640
+  root: data
+  test_list: data/test_list.txt
+  train_list: data/train_list.txt
+  val_list: data/val_list.txt
+inference:
+  display: true
+  gpu_id: 0
+  output_fps: 30
+  save_output: true
+  video_input: true
 model:
-  yolo_weights: "weights/yolov7.pt"
-  conf_thres: 0.25 
-  iou_thres: 0.45  
-  
-  # SSHFD Configuration
-  num_keypoints: 17 
+  conf_thres: 0.25
   hidden_dim: 256
-  temporal_window: 5
-  save_path: "weights/sshfd_best.pt"
-  
-  # OJR Configuration
+  iou_thres: 0.45
+  num_keypoints: 17
   ojr_hidden_dim: 128
   ojr_num_layers: 2
-  ojr_save_path: "weights/ojr_best.pt"
-
-# Training Configuration
+  ojr_save_path: weights/ojr_state_dict.pt
+  save_path: weights/sshfd_state_dict.pt
+  temporal_window: 5
+  yolo_weights: weights/yolov7.pt
 training:
-  # General
   batch_size: 8
-  num_workers: 4
   epochs: 50
-  lr: 0.001
-  weight_decay: 1e-5
-  
-  # Loss weights
-  keypoint_loss_weight: 0.7
+  fall_class_weight: 3.0
   fall_loss_weight: 0.3
-  fall_class_weight: 3.0 
-  
-  # OJR Training
+  keypoint_loss_weight: 0.7
+  lr: 0.001
+  num_workers: 4
+  occlusion_threshold: 0.3
   ojr_epochs: 30
   ojr_lr: 0.001
-  occlusion_threshold: 0.3 
-
-# Inference Configuration
-inference:
-  video_input: True
-  save_output: True
-  output_fps: 30
-  display: True
-  gpu_id: 0 
+  weight_decay: 1.0e-05

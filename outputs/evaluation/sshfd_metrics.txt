@@ -1,0 +1,8 @@
+accuracy: 0.5161290322580645
+precision: 0.5161290322580645
+recall: 1.0
+f1: 0.6808510638297872
+auc: 0.2791666666666667
+confusion_matrix:
+  TN: 0, FP: 15
+  FN: 0, TP: 16

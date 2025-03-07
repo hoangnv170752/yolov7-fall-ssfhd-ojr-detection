@@ -1,0 +1,26 @@
+fall_scenarios:
+- chute15
+- chute23
+- chute13
+- chute09
+- chute07
+- chute01
+- chute11
+- chute19
+- chute21
+- chute17
+- chute03
+- chute05
+nofall_scenarios:
+- chute12
+- chute24
+- chute22
+- chute14
+- chute06
+- chute08
+- chute16
+- chute20
+- chute18
+- chute10
+- chute04
+- chute02

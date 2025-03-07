@@ -64,7 +64,14 @@ def evaluate_sshfd(config, args):
         hidden_dim=config['model']['hidden_dim'],
         temporal_window=config['model']['temporal_window']
     )
-    model.load_state_dict(torch.load(config['model']['save_path'], map_location=device))
+    
+    # Fix for loading the checkpoint correctly
+    checkpoint = torch.load(config['model']['save_path'], map_location=device)
+    if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['state_dict'])
+    else:
+        model.load_state_dict(checkpoint)
+        
     model = model.to(device).eval()
     
     # Evaluate
@@ -82,8 +89,27 @@ def evaluate_sshfd(config, args):
     # Print confusion matrix
     cm = metrics['confusion_matrix']
     print("\nConfusion Matrix:")
-    print(f"  TN: {cm[0, 0]}, FP: {cm[0, 1]}")
-    print(f"  FN: {cm[1, 0]}, TP: {cm[1, 1]}")
+    
+    # Handle case where only one class is present
+    if cm.shape == (1, 1):
+        # Check which class it is (only one is present)
+        with torch.no_grad():
+            for frames, labels in test_loader:
+                all_targets = labels.numpy()
+                break
+        
+        only_class = 0 if all_targets[0] == 0 else 1
+        if only_class == 0:
+            print(f"  TN: {cm[0, 0]}, FP: 0")
+            print(f"  FN: 0, TP: 0")
+        else:
+            print(f"  TN: 0, FP: 0")
+            print(f"  FN: 0, TP: {cm[0, 0]}")
+        print("Warning: Test set contains only one class. Consider adding examples of both classes.")
+    else:
+        # Normal case with both classes
+        print(f"  TN: {cm[0, 0]}, FP: {cm[0, 1]}")
+        print(f"  FN: {cm[1, 0]}, TP: {cm[1, 1]}")
     
     # Visualize results
     os.makedirs(args.output_dir, exist_ok=True)
@@ -131,16 +157,30 @@ def evaluate_ojr_model(config, args, sshfd_model=None):
             hidden_dim=config['model']['hidden_dim'],
             temporal_window=config['model']['temporal_window']
         )
-        sshfd_model.load_state_dict(torch.load(config['model']['save_path'], map_location=device))
+        
+        # Fix for loading the checkpoint correctly
+        checkpoint = torch.load(config['model']['save_path'], map_location=device)
+        if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+            sshfd_model.load_state_dict(checkpoint['state_dict'])
+        else:
+            sshfd_model.load_state_dict(checkpoint)
+            
         sshfd_model = sshfd_model.to(device).eval()
-    
+
     # Load OJR model
     ojr_model = OJR(
         input_dim=config['model']['num_keypoints'] * 2,
         hidden_dim=config['model']['ojr_hidden_dim'],
         num_layers=config['model']['ojr_num_layers']
     )
-    ojr_model.load_state_dict(torch.load(config['model']['ojr_save_path'], map_location=device))
+
+    # Fix for loading the OJR checkpoint correctly
+    checkpoint = torch.load(config['model']['ojr_save_path'], map_location=device)
+    if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+        ojr_model.load_state_dict(checkpoint['state_dict'])
+    else:
+        ojr_model.load_state_dict(checkpoint)
+        
     ojr_model = ojr_model.to(device).eval()
     
     # Evaluate
@@ -196,6 +236,23 @@ def visualize_roc_curve(dataloader, model, device, output_path):
             all_predictions.extend(probs.cpu().numpy())
             all_targets.extend(labels.cpu().numpy())
     
+    # Check if both classes are present
+    unique_classes = np.unique(all_targets)
+    if len(unique_classes) < 2:
+        print(f"Warning: Only one class ({unique_classes[0]}) present in test set. ROC curve requires both classes.")
+        # Create empty plot with warning
+        plt.figure(figsize=(10, 8))
+        plt.text(0.5, 0.5, f"ROC curve not available: Only class {unique_classes[0]} present in test set",
+                horizontalalignment='center', verticalalignment='center', fontsize=12)
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('ROC Curve (Not Available)')
+        plt.savefig(output_path)
+        plt.close()
+        return
+    
     # Calculate ROC curve
     fpr, tpr, thresholds = roc_curve(all_targets, all_predictions)
     roc_auc = auc(fpr, tpr)
@@ -249,6 +306,23 @@ def visualize_pr_curve(dataloader, model, device, output_path):
             all_predictions.extend(probs.cpu().numpy())
             all_targets.extend(labels.cpu().numpy())
     
+    # Check if both classes are present
+    unique_classes = np.unique(all_targets)
+    if len(unique_classes) < 2:
+        print(f"Warning: Only one class ({unique_classes[0]}) present in test set. PR curve requires both classes.")
+        # Create empty plot with warning
+        plt.figure(figsize=(10, 8))
+        plt.text(0.5, 0.5, f"PR curve not available: Only class {unique_classes[0]} present in test set",
+                horizontalalignment='center', verticalalignment='center', fontsize=12)
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.title('Precision-Recall Curve (Not Available)')
+        plt.savefig(output_path)
+        plt.close()
+        return
+    
     # Calculate PR curve
     precision, recall, thresholds = precision_recall_curve(all_targets, all_predictions)
     pr_auc = auc(recall, precision)
@@ -280,8 +354,24 @@ def visualize_confusion_matrix(cm, output_path):
         output_path: Output path for the visualization
     """
     plt.figure(figsize=(8, 6))
-    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-    plt.title('Confusion Matrix')
+    
+    # Handle the case where only one class is present
+    if cm.shape == (1, 1):
+        # Create a 2x2 matrix for visualization
+        expanded_cm = np.zeros((2, 2), dtype=int)
+        
+        # Determine which class it is (assuming we can tell from cm)
+        # We don't know which class it is from cm alone, so we'll add a note
+        expanded_cm[0, 0] = cm[0, 0]  # Place the value in either TN or TP position
+        cm = expanded_cm
+        plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+        plt.title('Confusion Matrix (Only one class present)')
+        note = "Note: Only one class present in test set\nMatrix expanded to 2x2 for visualization"
+        plt.figtext(0.5, 0.01, note, wrap=True, horizontalalignment='center', fontsize=9)
+    else:
+        plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+        plt.title('Confusion Matrix')
+    
     plt.colorbar()
     
     classes = ['No Fall', 'Fall']
@@ -382,8 +472,14 @@ def save_metrics(metrics, output_path):
         for key, value in metrics.items():
             if key == 'confusion_matrix':
                 f.write(f"{key}:\n")
-                f.write(f"  TN: {value[0, 0]}, FP: {value[0, 1]}\n")
-                f.write(f"  FN: {value[1, 0]}, TP: {value[1, 1]}\n")
+                cm = value
+                # Handle case where only one class is present
+                if cm.shape == (1, 1):
+                    f.write(f"  Note: Only one class present in test set\n")
+                    f.write(f"  Value: {cm[0, 0]}\n")
+                else:
+                    f.write(f"  TN: {cm[0, 0]}, FP: {cm[0, 1]}\n")
+                    f.write(f"  FN: {cm[1, 0]}, TP: {cm[1, 1]}\n")
             else:
                 f.write(f"{key}: {value}\n")
     
@@ -415,7 +511,12 @@ def main():
                 hidden_dim=config['model']['hidden_dim'],
                 temporal_window=config['model']['temporal_window']
             )
-            sshfd_model.load_state_dict(torch.load(config['model']['save_path'], map_location=device))
+            # Fix for loading the checkpoint correctly
+            checkpoint = torch.load(config['model']['save_path'], map_location=device)
+            if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+                sshfd_model.load_state_dict(checkpoint['state_dict'])
+            else:
+                sshfd_model.load_state_dict(checkpoint)
             sshfd_model = sshfd_model.to(device).eval()
         else:
             sshfd_model = None

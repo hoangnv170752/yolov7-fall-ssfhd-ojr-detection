@@ -316,8 +316,15 @@ def train_ojr(config, args, sshfd_model=None):
             hidden_dim=config['model']['hidden_dim'],
             temporal_window=config['model']['temporal_window']
         )
-        sshfd_model.load_state_dict(torch.load(config['model']['save_path'], map_location=device))
-        sshfd_model = sshfd_model.to(device)
+        
+        # Fix for loading the checkpoint correctly
+        checkpoint = torch.load(config['model']['save_path'], map_location=device)
+        if 'state_dict' in checkpoint:
+            sshfd_model.load_state_dict(checkpoint['state_dict'])
+        else:
+            sshfd_model.load_state_dict(checkpoint)
+        
+    sshfd_model = sshfd_model.to(device)
     
     # Set SSHFD to eval mode
     sshfd_model.eval()
@@ -338,8 +345,8 @@ def train_ojr(config, args, sshfd_model=None):
     # Define optimizer and scheduler
     optimizer = torch.optim.Adam(
         ojr_model.parameters(),
-        lr=config['training']['ojr_lr'],
-        weight_decay=config['training']['weight_decay']
+        lr=float(config['training']['ojr_lr']),
+        weight_decay=float(config['training']['weight_decay'])
     )
     
     # Learning rate scheduler

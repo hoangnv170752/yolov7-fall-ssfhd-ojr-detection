@@ -63,7 +63,14 @@ def load_models(config, device):
         hidden_dim=config['model']['hidden_dim'],
         temporal_window=config['model']['temporal_window']
     )
-    sshfd_model.load_state_dict(torch.load(config['model']['save_path'], map_location=device))
+    
+    # Fix for loading the checkpoint correctly
+    checkpoint = torch.load(config['model']['save_path'], map_location=device)
+    if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+        sshfd_model.load_state_dict(checkpoint['state_dict'])
+    else:
+        sshfd_model.load_state_dict(checkpoint)
+        
     sshfd_model = sshfd_model.to(device).eval()
     
     # Load OJR model
@@ -72,7 +79,14 @@ def load_models(config, device):
         hidden_dim=config['model']['ojr_hidden_dim'],
         num_layers=config['model']['ojr_num_layers']
     )
-    ojr_model.load_state_dict(torch.load(config['model']['ojr_save_path'], map_location=device))
+    
+    # Fix for loading the checkpoint correctly
+    checkpoint = torch.load(config['model']['ojr_save_path'], map_location=device)
+    if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+        ojr_model.load_state_dict(checkpoint['state_dict'])
+    else:
+        ojr_model.load_state_dict(checkpoint)
+        
     ojr_model = ojr_model.to(device).eval()
     
     return yolo_model, sshfd_model, ojr_model
@@ -194,6 +208,9 @@ def process_video(args, config):
         if pbar is not None:
             pbar.update(1)
             
+        # Initialize output_frame before any branching
+        output_frame = frame.copy()
+            
         # Preprocess frame
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         input_tensor = transform(rgb_frame).to(device)
@@ -286,7 +303,7 @@ def process_video(args, config):
                 scaled_keypoints[1::2] = scaled_keypoints[1::2] * height
                 
                 # Visualize results
-                output_frame = frame.copy()
+                # output_frame is already initialized at the start of the loop
                 
                 # Draw person bounding box
                 cv2.rectangle(
@@ -315,36 +332,23 @@ def process_video(args, config):
                 keypoint_buffer.pop(0)
                 confidence_buffer.pop(0)
                 bbox_buffer.pop(0)
-                
-            # Display current frame
-            if not args.no_display:
-                cv2.imshow('Fall Detection', output_frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-            
-            # Write output frame
-            if config['inference']['save_output']:
-                output_writer.write(output_frame)
         else:
-            # No person detected, use original frame
-            output_frame = frame.copy()
-            
-            # Add empty placeholders to buffers
+            # No person detected, add empty placeholders to buffers
             if len(frame_buffer) < temporal_window:
                 frame_buffer.append(input_tensor)
                 keypoint_buffer.append(torch.zeros(config['model']['num_keypoints'] * 2).to(device))
                 confidence_buffer.append(torch.zeros(config['model']['num_keypoints']).to(device))
                 bbox_buffer.append(torch.zeros(4).to(device))
                 
-            # Display empty frame
-            if not args.no_display:
-                cv2.imshow('Fall Detection', output_frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-                
-            # Write output frame
-            if config['inference']['save_output']:
-                output_writer.write(output_frame)
+        # Display current frame
+        if not args.no_display:
+            cv2.imshow('Fall Detection', output_frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+            
+        # Write output frame
+        if config['inference']['save_output']:
+            output_writer.write(output_frame)
                 
         frame_idx += 1
     
@@ -360,11 +364,18 @@ def process_video(args, config):
 
 def main():
     """Main function."""
+    # Parse arguments
     args = parse_args()
     
+    # Load config
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
     
+    # Ensure numeric values are properly typed
+    config['training']['weight_decay'] = float(config['training']['weight_decay'])
+    config['training']['occlusion_threshold'] = float(config['training']['occlusion_threshold'])
+    
+    # Process video
     process_video(args, config)
 
 
