@@ -47,10 +47,15 @@ graph TD
         M --> N
     end
     
-    style YOLOv7 fill:#f9d77e,stroke:#333,stroke-width:2px
-    style "Multi-Task Learning Framework" fill:#a8d5ba,stroke:#333,stroke-width:2px
-    style "SSHFD Module" fill:#f7a8a8,stroke:#333,stroke-width:2px
-    style "OJR Module" fill:#a8c6f7,stroke:#333,stroke-width:2px
+    classDef yoloStyle fill:#f9d77e,stroke:#333,stroke-width:2px
+    classDef mtlStyle fill:#a8d5ba,stroke:#333,stroke-width:2px
+    classDef sshfdStyle fill:#f7a8a8,stroke:#333,stroke-width:2px
+    classDef ojrStyle fill:#a8c6f7,stroke:#333,stroke-width:2px
+    
+    class C,D yoloStyle
+    class E,F,G mtlStyle
+    class H,I sshfdStyle
+    class J,K ojrStyle
 ```
 
 ## Methodology Flow
