@@ -8,21 +8,35 @@ def compute_accuracy(predictions, targets):
     Compute accuracy from predictions and targets.
     
     Args:
-        predictions: Predicted logits
+        predictions: Predicted logits or class indices
         targets: Ground truth labels
         
     Returns:
         accuracy: Classification accuracy
     """
     if isinstance(predictions, torch.Tensor):
-        # Get predicted class
-        pred_class = torch.argmax(predictions, dim=1)
+        # Check if predictions are already class indices (1D tensor)
+        if predictions.ndim == 1 or (predictions.ndim == 2 and predictions.shape[1] == 1):
+            pred_class = predictions.view(-1)
+        else:
+            # Get predicted class from logits
+            pred_class = torch.argmax(predictions, dim=1)
+            
         correct = (pred_class == targets).float().sum()
         accuracy = correct / targets.size(0)
         return accuracy.item()
     else:
-        # Numpy implementation
-        pred_class = np.argmax(predictions, axis=1)
+        # Convert to numpy array if not already
+        predictions = np.asarray(predictions)
+        targets = np.asarray(targets)
+        
+        # Check if predictions are already class indices (1D array)
+        if predictions.ndim == 1 or (predictions.ndim == 2 and predictions.shape[1] == 1):
+            pred_class = predictions.flatten()
+        else:
+            # Get predicted class from logits
+            pred_class = np.argmax(predictions, axis=1)
+            
         correct = (pred_class == targets).sum()
         accuracy = correct / len(targets)
         return accuracy
@@ -33,9 +47,9 @@ def compute_precision_recall_f1(predictions, targets, threshold=0.5):
     Compute precision, recall, and F1 score.
     
     Args:
-        predictions: Predicted probabilities for positive class
+        predictions: Predicted probabilities for positive class or class indices
         targets: Ground truth labels (binary)
-        threshold: Classification threshold
+        threshold: Classification threshold (used only if predictions are probabilities)
         
     Returns:
         precision, recall, f1: Metric values
@@ -46,11 +60,35 @@ def compute_precision_recall_f1(predictions, targets, threshold=0.5):
     if isinstance(targets, torch.Tensor):
         targets = targets.cpu().numpy()
     
-    # Binary predictions
-    binary_preds = (np.array(predictions) >= threshold).astype(int)
-    targets = np.array(targets)
+    # Ensure arrays are 1D
+    predictions = np.asarray(predictions)
+    targets = np.asarray(targets)
     
-    # Calculate metrics
+    # Check if predictions are already class indices (1D array)
+    if predictions.ndim == 1 or (predictions.ndim == 2 and predictions.shape[1] == 1):
+        binary_preds = predictions.flatten().astype(int)
+    else:
+        # If predictions are logits/probabilities (2D array with classes)
+        if predictions.ndim == 2 and predictions.shape[1] == 2:
+            # Use second column for positive class probability
+            binary_preds = (predictions[:, 1] >= threshold).astype(int)
+        else:
+            # Use threshold on raw predictions
+            binary_preds = (predictions >= threshold).astype(int)
+    
+    targets = targets.flatten().astype(int)
+    
+    # Handle case with only one class in targets
+    unique_classes = np.unique(targets)
+    if len(unique_classes) == 1:
+        if binary_preds.sum() == 0 and targets.sum() == 0:
+            # All predictions and targets are negative
+            return 1.0, 1.0, 1.0
+        elif binary_preds.sum() == len(binary_preds) and targets.sum() == len(targets):
+            # All predictions and targets are positive
+            return 1.0, 1.0, 1.0
+    
+    # Compute metrics
     precision, recall, f1, _ = precision_recall_fscore_support(
         targets, binary_preds, average='binary', zero_division=0
     )
@@ -63,7 +101,7 @@ def compute_auc(predictions, targets):
     Compute Area Under the ROC Curve (AUC).
     
     Args:
-        predictions: Predicted probabilities for positive class
+        predictions: Predicted probabilities for positive class or class indices
         targets: Ground truth labels (binary)
         
     Returns:
@@ -75,14 +113,40 @@ def compute_auc(predictions, targets):
     if isinstance(targets, torch.Tensor):
         targets = targets.cpu().numpy()
     
-    # Calculate AUC
-    try:
-        auc = roc_auc_score(targets, predictions)
-    except ValueError:
-        # Handle case where there's only one class in the targets
-        auc = 0.5  # Default to random classifier
+    # Ensure arrays are 1D
+    predictions = np.asarray(predictions)
+    targets = np.asarray(targets)
     
-    return auc
+    # Handle case with only one class in targets
+    unique_classes = np.unique(targets)
+    if len(unique_classes) == 1:
+        # Cannot compute AUC with only one class
+        return 0.5  # Default value (random classifier)
+    
+    # Check if predictions are already class indices (1D array)
+    if predictions.ndim == 1 or (predictions.ndim == 2 and predictions.shape[1] == 1):
+        # Convert class indices to probability scores (1 for positive class)
+        # This is not ideal but allows the function to work with class indices
+        scores = (predictions.flatten() > 0).astype(float)
+    else:
+        # If predictions are logits/probabilities (2D array with classes)
+        if predictions.ndim == 2 and predictions.shape[1] == 2:
+            # Use second column for positive class probability
+            scores = predictions[:, 1]
+        else:
+            # Use raw predictions as scores
+            scores = predictions.flatten()
+    
+    targets = targets.flatten()
+    
+    try:
+        # Compute AUC
+        auc = roc_auc_score(targets, scores)
+        return auc
+    except ValueError as e:
+        # Handle errors (e.g., only one class present)
+        print(f"Error computing AUC: {str(e)}")
+        return 0.5  # Default value (random classifier)
 
 
 def compute_confusion_matrix(predictions, targets, threshold=0.5):
